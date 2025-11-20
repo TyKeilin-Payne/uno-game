@@ -1,4 +1,3 @@
-# worker_node.py
 import socket
 import threading
 import argparse
@@ -7,12 +6,10 @@ import random
 import socket as pysock
 from collections import deque
 
-# Simple UNO-like single-room worker server
 DEFAULT_WORKER_PORT = 5555
 BROKER_TIMEOUT = 2
 
 def get_local_ip():
-    # get local IP by connecting to a public DNS and reading the socket name (no data sent)
     s = pysock.socket(pysock.AF_INET, pysock.SOCK_DGRAM)
     try:
         s.connect(("8.8.8.8", 80))
@@ -41,7 +38,6 @@ def client_thread(conn, addr, server_state):
         if not room_name:
             conn.close()
             return
-        # store player
         with server_state['lock']:
             server_state['players'].append(addr_key(addr))
             server_state['hands'][addr_key(addr)] = [server_state['deck'].draw() for _ in range(7)]
@@ -67,7 +63,7 @@ def addr_key(addr_tuple):
     return f"{addr_tuple[0]}:{addr_tuple[1]}"
 
 def log(state, message):
-    # include worker id + host IP in logs (meets demonstration requirement)
+    
     ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     print(f"[{ts}] [WORKER {state['worker_id']}] ({state['host_ip']}) {message}")
 
@@ -106,16 +102,13 @@ def handle_player_command(conn, player, command, state):
             conn.sendall("ERROR It is NOT your turn.\n".encode())
             return
 
-        # --- Card selection ---
-        # Case 1: play <index>
         if len(cmd) == 2 and cmd[1].isdigit():
             idx = int(cmd[1]) - 1
             if idx < 0 or idx >= len(hand):
                 conn.sendall("ERROR Invalid card index.\n".encode())
                 return
             card = hand[idx]
-
-        # Case 2: play <card name> (play Reverse Blue)
+            
         else:
             card = parse_card(" ".join(cmd[1:]))
             if card not in hand:
@@ -126,16 +119,13 @@ def handle_player_command(conn, player, command, state):
 
         top = state['discard'][-1] if state['discard'] else None
 
-        # Cannot play
         if not can_play(card, top, state['active_color']):
             conn.sendall(f"ERROR cannot play {card} on top of {top}\n".encode())
             return
-
-        # --- PLAY THE CARD ---
+            
         hand.pop(idx)
         state['discard'].append(card)
 
-        # Wild handling
         if card.startswith("Wild"):
             if len(cmd) >= 3:
                 chosen = cmd[-1].capitalize()
@@ -148,14 +138,12 @@ def handle_player_command(conn, player, command, state):
         conn.sendall(f"PLAYED {card}\n".encode())
         broadcast_to_all(state, f"{player} played {card}", exclude=player)
 
-        # --- WIN CHECK ---
         if len(hand) == 0:
             broadcast_to_all(state, f"🎉 PLAYER {player} WINS THE GAME! 🎉")
             conn.sendall("YOU WIN! 🎉\n".encode())
             state['game_over'] = True
             return
 
-        # Advance turn
         next_turn(state)
         next_p = current_player(state)
         broadcast_to_all(state, f"It is now {next_p}'s turn.")
@@ -171,13 +159,13 @@ def can_play(card, top_card, active_color):
         return True
     if card.startswith("Wild"):
         return True
-    # parse
+    
     try:
         val, col = card.rsplit(" ",1)
     except:
         return False
     if top_card.startswith("Wild") or active_color:
-        # use active_color if present
+       
         if active_color:
             return col == active_color
     try:
@@ -187,7 +175,7 @@ def can_play(card, top_card, active_color):
     return col == top_col or val == top_val
 
 def broadcast_to_all(state, text, exclude=None):
-    # this worker is simple: it keeps sockets in 'conns' map
+   
     with state['lock']:
         for p, c in list(state['conns'].items()):
             if p == exclude:
@@ -218,7 +206,6 @@ def parse_card(text):
     if len(parts) == 2:
         return f"{parts[0]} {parts[1]}"
 
-    # example: "Draw Two Green"
     if len(parts) == 3:
         return f"{parts[0]} {parts[1]} {parts[2]}"
 
@@ -232,7 +219,7 @@ def next_turn(state):
     if "turn_order" not in state:
         return
     state["turn_index"] = (state["turn_index"] + 1) % len(state["turn_order"])
-        # Set turn order when first 2+ players join
+       
     with server_state['lock']:
             if len(server_state['players']) >= 2:
                 server_state.setdefault("turn_order", server_state['players'].copy())
@@ -241,7 +228,7 @@ def next_turn(state):
 def worker_server(listen_host, listen_port, broker_host, broker_port):
     host_ip = get_local_ip()
     worker_id = f"{host_ip}:{listen_port}"
-    # register
+  
     resp = register_with_broker(broker_host, broker_port, host_ip, listen_port, worker_id)
     print(f"[WORKER] Registered with broker -> {resp}")
 
@@ -250,7 +237,7 @@ def worker_server(listen_host, listen_port, broker_host, broker_port):
         "host_ip": host_ip,
         "port": listen_port,
         "players": [],
-        "conns": {},    # player_key -> conn socket
+        "conns": {},    
         "hands": {},
         "deck": Deck(),
         "discard": [],
@@ -258,7 +245,6 @@ def worker_server(listen_host, listen_port, broker_host, broker_port):
         "lock": threading.Lock()
     }
 
-    # put one card on the discard to start
     state['discard'].append(state['deck'].draw())
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -283,3 +269,4 @@ if __name__ == "__main__":
         worker_server("0.0.0.0", args.port, args.broker_host, args.broker_port)
     except KeyboardInterrupt:
         print("Worker shutting down")
+
