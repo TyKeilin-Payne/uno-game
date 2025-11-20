@@ -98,7 +98,7 @@ def handle_player_command(conn, player, command, state):
             conn.sendall("ERROR No cards left\n".encode())
         return
     if verb == "play":
-    with state['lock']:
+     with state['lock']:
         hand = state['hands'][player]
 
         # Turn check
@@ -207,6 +207,36 @@ def register_with_broker(broker_host, broker_port, worker_host, worker_port, wor
         return resp
     except Exception as e:
         return f"ERROR {e}"
+def parse_card(text):
+    """Convert player text into normalized card name."""
+    text = text.strip().title()
+    parts = text.split()
+
+    if len(parts) == 1:
+        return parts[0]
+
+    if len(parts) == 2:
+        return f"{parts[0]} {parts[1]}"
+
+    # example: "Draw Two Green"
+    if len(parts) == 3:
+        return f"{parts[0]} {parts[1]} {parts[2]}"
+
+    return text
+def current_player(state):
+    """Return the player whose turn it is."""
+    return state.get("turn_order", [])[state.get("turn_index", 0)]
+
+def next_turn(state):
+    """Move to the next player's turn."""
+    if "turn_order" not in state:
+        return
+    state["turn_index"] = (state["turn_index"] + 1) % len(state["turn_order"])
+        # Set turn order when first 2+ players join
+    with server_state['lock']:
+            if len(server_state['players']) >= 2:
+                server_state.setdefault("turn_order", server_state['players'].copy())
+                server_state.setdefault("turn_index", 0)
 
 def worker_server(listen_host, listen_port, broker_host, broker_port):
     host_ip = get_local_ip()
