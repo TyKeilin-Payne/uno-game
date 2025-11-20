@@ -1,4 +1,3 @@
-# server.py
 import socket
 import threading
 import multiprocessing
@@ -7,9 +6,6 @@ import time
 import queue
 from collections import deque
 
-# --------------------------
-# Deck and basic utilities
-# --------------------------
 class Deck:
     def __init__(self):
         suits = ['Red', 'Yellow', 'Green', 'Blue']
@@ -27,9 +23,6 @@ class Deck:
             return None
         return self.cards.pop()
 
-# --------------------------
-# Game room process
-# --------------------------
 def game_room_process(room_name, pipe):
     """
     Runs in a separate process for each room. Manages game state (hands, turn order, discard pile)
@@ -44,12 +37,12 @@ def game_room_process(room_name, pipe):
       ("debug", text)            # debug/info printed by server
     """
     deck = Deck()
-    discard = []  # discard pile; top is last element
-    players = []  # list of addresses in order of joining
-    hands = {}    # addr -> list of card strings
+    discard = []  
+    players = []  
+    hands = {}    
     turn_index = 0
-    direction = 1  # 1 = clockwise, -1 = counterclockwise
-    waiting_for_color = None  # if someone played a Wild, store (addr) expecting color next (not used heavily)
+    direction = 1  
+    waiting_for_color = None  
     lock = multiprocessing.Lock()
 
     def broadcast(text):
@@ -68,16 +61,16 @@ def game_room_process(room_name, pipe):
 
     def start_match_if_ready():
         if len(players) >= 2 and not discard:
-            # start the game by putting one card on discard (non-action ideally but we'll accept)
+            
             while True:
                 top = deck.draw_card()
                 if not top:
                     break
-                # Avoid starting with Wild Draw Four (optional) — accept any
+
                 discard.append(top)
                 break
             broadcast(f"[ROOM {room_name}] Match started. Top of discard: {discard[-1]}")
-            # tell players whose turn it is
+
             send_turn_notification()
 
     def send_turn_notification():
@@ -92,7 +85,7 @@ def game_room_process(room_name, pipe):
         if not players:
             return
         n = len(players)
-        # compute next index with direction
+       
         turn_index = (turn_index + direction * steps) % n
         send_turn_notification()
 
@@ -102,7 +95,7 @@ def game_room_process(room_name, pipe):
             idx = players.index(addr)
             players.remove(addr)
             hands.pop(addr, None)
-            # adjust turn_index if necessary
+          
             if idx < turn_index or turn_index >= len(players):
                 turn_index = max(0, turn_index - 1)
 
@@ -117,7 +110,7 @@ def game_room_process(room_name, pipe):
             return True
         if card.startswith("Wild"):
             return True
-        # parse
+
         try:
             val, col = card.rsplit(" ", 1)
         except ValueError:
@@ -125,27 +118,25 @@ def game_room_process(room_name, pipe):
         try:
             top_val, top_col = top_card.rsplit(" ", 1)
         except ValueError:
-            # top might be Wild: then current_color should be provided
+            
             if current_color:
                 _, col = card.rsplit(" ", 1)
                 return col == current_color
             return True
-        # if top is Wild we may have a current_color
+        
         if top_card.startswith("Wild") or top_card.startswith("Wild Draw Four"):
             if current_color:
                 return col == current_color or val == top_val
             else:
                 return True
-        # normal match
+       
         return col == top_col or val == top_val
 
-    # track active color when a Wild is played
     active_color = None
 
     pipe.send(("debug", room_name, f"Room process started."))
 
     while True:
-        # read commands from server
         while pipe.poll():
             msg = pipe.recv()
             if isinstance(msg, tuple) and msg[0] == "new_client":
@@ -161,24 +152,20 @@ def game_room_process(room_name, pipe):
             elif isinstance(msg, tuple) and msg[0] == "command":
                 _, addr, command = msg
                 command = command.strip()
-                # ignore cmds from unknown players
                 if addr not in players:
                     send(addr, "ERROR You are not in this room.")
                     continue
 
-                # If the player hasn't a hand, something wrong
                 if addr not in hands:
                     send(addr, "ERROR No hand found.")
                     continue
 
-                # Only allow actions when it's player's turn (except 'hand' or 'look' or 'exit')
                 if not command:
                     continue
 
                 parts = command.split()
                 verb = parts[0].lower()
 
-                # Allow some informational commands any time
                 if verb in ("hand", "myhand"):
                     send(addr, f"HAND {' | '.join(hands[addr])}")
                     continue
@@ -190,12 +177,10 @@ def game_room_process(room_name, pipe):
                     broadcast(f"[ROOM {room_name}] Player {addr} left the room.")
                     continue
 
-                # enforce turn
                 if players and players[turn_index] != addr:
                     send(addr, "ERROR Not your turn.")
                     continue
 
-                # PLAY: 'play <index> [color]' index is 1-based index into player's hand
                 if verb == "play":
                     if len(parts) < 2:
                         send(addr, "ERROR usage: play <index> [color-for-wild]")
@@ -209,22 +194,16 @@ def game_room_process(room_name, pipe):
                         send(addr, "ERROR invalid card index")
                         continue
                     card = hands[addr][idx]
-                    # check match against top discard
                     if not card_matches(card, discard[-1] if discard else None, current_color=active_color):
                         send(addr, f"ERROR You cannot play {card} on top of {discard[-1] if discard else 'None'} (active color: {active_color})")
                         continue
 
-                    # remove card from hand and place on discard
                     played = hands[addr].pop(idx)
                     discard.append(played)
                     broadcast(f"[ROOM {room_name}] {addr} played {played}")
-                    # reset active_color unless wild sets it
                     active_color = None
 
-                    # Apply simple actions
-                    # parse value and color
                     if played.startswith("Wild"):
-                        # determine chosen color if provided
                         chosen_color = None
                         if len(parts) >= 3:
                             chosen_color = parts[2].capitalize()
@@ -232,18 +211,14 @@ def game_room_process(room_name, pipe):
                                 send(addr, "ERROR invalid color choice. Use Red, Green, Blue, Yellow.")
                                 continue
                         else:
-                            # if not provided, default to Red (or ask, but keep simple)
                             chosen_color = "Red"
                         active_color = chosen_color
                         broadcast(f"[ROOM {room_name}] {addr} chose color {chosen_color}")
                         if played == "Wild Draw Four":
-                            # next player draws 4 and loses turn
-                            advance_turn(0)  # do not change now; target is next player
-                            # compute next player index
+                            advance_turn(0)
                             next_idx = (turn_index + direction) % len(players) if players else None
                             if next_idx is not None:
                                 next_player = players[next_idx]
-                                # draw 4
                                 drawn = []
                                 for _ in range(4):
                                     c = deck.draw_card()
@@ -252,35 +227,28 @@ def game_room_process(room_name, pipe):
                                         hands[next_player].append(c)
                                 send(next_player, f"DRAWN {' | '.join(drawn)}")
                                 broadcast(f"[ROOM {room_name}] {next_player} drew 4 cards (penalty).")
-                                # skip that player's turn by advancing 1 extra
-                                # since we will advance normally once at end of handling, we advance 1 more now
-                                advance_turn(2)  # skip next player
+                               
+                                advance_turn(2)  
                                 continue
-                        # if normal Wild just continue and advance one
+                       
                         advance_turn(1)
                         continue
-
-                    # Not wild
-                    # split value and color
                     if " " in played:
                         val, col = played.rsplit(" ", 1)
                     else:
                         val, col = played, None
 
                     if val == "Skip":
-                        # next player skipped
                         advance_turn(2)
                         continue
                     elif val == "Reverse":
                         if len(players) == 2:
-                            # in two-player Reverse acts like Skip
                             advance_turn(2)
                         else:
                             direction *= -1
                             advance_turn(1)
                         continue
                     elif val == "Draw Two":
-                        # next player draws 2 and loses turn
                         next_idx = (turn_index + direction) % len(players) if players else None
                         if next_idx is not None:
                             next_player = players[next_idx]
@@ -292,16 +260,13 @@ def game_room_process(room_name, pipe):
                                     hands[next_player].append(c)
                             send(next_player, f"DRAWN {' | '.join(drawn)}")
                             broadcast(f"[ROOM {room_name}] {next_player} drew 2 cards (penalty).")
-                        # skip next player's turn
                         advance_turn(2)
                         continue
                     else:
-                        # normal number or other action but no extra effect
                         advance_turn(1)
                         continue
 
                 elif verb == "draw":
-                    # player draws one card and turn ends (simple rules)
                     c = deck.draw_card()
                     if c:
                         hands[addr].append(c)
@@ -309,7 +274,6 @@ def game_room_process(room_name, pipe):
                         broadcast(f"[ROOM {room_name}] {addr} drew a card.")
                     else:
                         send(addr, "ERROR No cards left to draw.")
-                    # player's turn ends after drawing
                     advance_turn(1)
                     continue
 
@@ -319,9 +283,6 @@ def game_room_process(room_name, pipe):
 
         time.sleep(0.05)
 
-# --------------------------
-# Server (communication broker)
-# --------------------------
 class GameServer:
     def __init__(self, host='0.0.0.0', port=5555):
         self.host = host
@@ -331,15 +292,12 @@ class GameServer:
         self.server_socket.bind((self.host, self.port))
         self.server_socket.listen(10)
 
-        # IPC communication for room processes
-        self.rooms = {}         # room_name -> Process
-        self.room_pipes = {}    # room_name -> parent_conn
-        self.room_players = {}  # room_name -> list of addrs
-        self.client_map = {}    # addr -> conn
-
+        self.rooms = {}         
+        self.room_pipes = {}    
+        self.room_players = {}  
+        self.client_map = {}    
         print(f"[SERVER] Listening on {self.host}:{self.port}")
 
-        # lock for thread-safe maps
         self.lock = threading.Lock()
 
     def start(self):
@@ -372,14 +330,14 @@ class GameServer:
             for room_name, pipe in list(self.room_pipes.items()):
                 if pipe.poll():
                     msg = pipe.recv()
-                    # msg types from room: ("send", room_name, addr, text), ("broadcast", room_name, text), ("debug", ...)
+                   
                     if isinstance(msg, tuple):
                         if msg[0] == "send":
                             _, rn, addr, text = msg
                             self.route_to_client(addr, text)
                         elif msg[0] == "broadcast":
                             _, rn, text = msg
-                            # send to all players in that room
+                          
                             with self.lock:
                                 for paddr in list(self.room_players.get(rn, [])):
                                     self.route_to_client(paddr, text)
@@ -415,9 +373,8 @@ class GameServer:
                     self.client_map.pop(addr_key, None)
                 return
 
-            # Auto-assign logic: find a room with fewer than 4 players or create a new one
             if room_name.lower() == "auto":
-                # pick an existing small room or make a new one
+            
                 chosen = None
                 with self.lock:
                     for rn, players in self.room_players.items():
@@ -429,30 +386,26 @@ class GameServer:
                     self.create_game_room(chosen)
                 room_name = chosen
 
-            # Create room if needed
             if room_name not in self.rooms:
                 self.create_game_room(room_name)
 
-            # register player in server's room mapping
             with self.lock:
                 if addr_key not in self.room_players[room_name]:
                     self.room_players[room_name].append(addr_key)
 
-            # tell room process about new client
             self.room_pipes[room_name].send(("new_client", addr_key))
             conn.sendall(f"You joined room '{room_name}'. Use commands: play <index> [color-for-wild], draw, hand, top, exit\n".encode())
 
-            # relay loop: read messages from the client and forward to room process
             while True:
                 data = conn.recv(1024).decode().strip()
                 if not data:
                     break
-                # Simple exit handling
+         
                 if data.lower() == "exit":
-                    # inform room
+                 
                     self.room_pipes[room_name].send(("command", addr_key, "exit"))
                     break
-                # forward arbitrary command to the room process
+        
                 self.room_pipes[room_name].send(("command", addr_key, data))
 
             print(f"[DISCONNECT] {addr_key}")
@@ -461,15 +414,15 @@ class GameServer:
         finally:
             conn.close()
             with self.lock:
-                # remove from client_map
+               
                 self.client_map.pop(addr_key, None)
-                # remove from room players lists
+            
                 for rn, players in self.room_players.items():
                     if addr_key in players:
                         players.remove(addr_key)
 
 if __name__ == "__main__":
-    # On some platforms multiprocessing start method matters.
+    
     try:
         multiprocessing.set_start_method("spawn")
     except RuntimeError:
@@ -477,3 +430,4 @@ if __name__ == "__main__":
 
     server = GameServer()
     server.start()
+
