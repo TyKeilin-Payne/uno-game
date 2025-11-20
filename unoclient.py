@@ -1,4 +1,3 @@
-# client.py
 import socket
 import threading
 
@@ -43,7 +42,7 @@ def run_client(broker_host="127.0.0.1", broker_port=6000):
     print(f"Connecting to worker {host}:{port} for room '{room_assigned}' ...")
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect((host, port))
-    # start listener
+    
     t = threading.Thread(target=listen_worker, args=(s,), daemon=True)
     t.start()
     try:
@@ -64,3 +63,4 @@ if __name__ == "__main__":
     port = input("Enter broker port (press Enter for 6000): ").strip()
     port = int(port) if port else 6000
     run_client(broker, port)
+
