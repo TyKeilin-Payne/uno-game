@@ -1,11 +1,11 @@
 @echo off
-title UNO Distributed Launcher
+title UNO UNION
 color 0A
 
 :menu
 cls
 echo =========================================
-echo        UNO DISTRIBUTED LAUNCHER
+echo        UNO UNION
 echo =========================================
 echo.
 echo  1) Start BROKER (master)
@@ -76,5 +76,6 @@ timeout /t 1 >nul
 
 echo Starting Client 2...
 start cmd /k python unoclient.py
+
 
 goto menu
